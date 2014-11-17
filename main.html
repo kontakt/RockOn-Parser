@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en" style="height:100%;">
+	<head>
+		<meta charset="utf-8">
+
+		<!-- Always force latest IE rendering engine (even in intranet) & Chrome Frame
+		Remove this if you use the .htaccess -->
+		<meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+
+		<title>Rocket Data</title>
+			
+		<script src="js/papaparse.min.js"></script>
+		<script src="js/canvasjs.min.js"></script>		
+
+	</head>
+
+	<body style="height:100%;">
+
+
+		<span>RADAR data: </span>
+		<input type="file" id="radFiles" name="files[]" multiple />
+		<span>Payload data: </span>
+		<input type="file" id="rocFiles" name="files[]" multiple />
+		<br/>
+		<output id="list">No file</output>
+		<br/>
+		<span id="progress">0</span><span> rows processed.</span>
+		<br/>
+		<div id="Radar" style="width:100%; height:80%;" />
+		<script>
+
+			var first = true;
+			var rows = 0;
+			var samples = 0;
+			var counter = document.getElementById('progress');
+			// Maximum time to display (in seconds)
+			var maxTime = 600;
+			var DEBUG = true;
+			var result = [];
+			
+			function radFileSelect(evt) {
+				rows = 0;
+				result = [];
+				var files = evt.target.files;
+				// This block processes the Radar file and creates a graph for it.
+				Papa.parse(files[0], {
+					dynamicTyping : true,
+					delimiter : "",
+					step: function(row, handle) {
+						if (DEBUG) { result.push(row); }
+						// If valid, send to the aggregator
+						if (typeof (row.data[0][0]) == 'number') {
+							stepRadar(row);
+						}
+						rows++;
+					},
+					complete : function(results) {
+						first = true;
+						polishRADAR();
+						// Render the chart
+						chart.render();
+						counter.innerHTML = rows;
+					}
+				});
+				document.getElementById('list').innerHTML = files[0].name;
+			}
+
+			function rocFileSelect(evt) {
+				var files = evt.target.files;
+				time = 0;
+				rows = 0;
+				result = [];
+				samples++;
+				level();
+				// This block will process the Payload data
+				Papa.parse(files[0], {
+					dynamicTyping : true,
+					delimiter : "",
+					step: function(row, handle) {
+						// Clears out empty array elements left by the parser
+						row.data[0].forEach(function(obj, index, arr){if(obj == ""){arr.splice(index, 1);}});
+						if (DEBUG) { result.push(row); }
+						// If valid data, send to the aggregator
+						if (typeof (row.data[0][0]) == 'number') {
+							stepPayload(row);
+						}
+						rows++;
+					},
+					complete : function(results) {
+						// Render the chart
+						chart.render();
+						counter.innerHTML = rows;
+					}
+				});
+				document.getElementById('list').innerHTML = files[0].name;
+			}
+			
+			var RadarData = [];
+			var offset;
+			function stepRadar(a) {
+				var time = Math.ceil(a.data[0][0]*10);
+				if (first) {
+					offset = a.data[0][3];
+					first = false;
+				}
+				if (RadarData[time-1]) {
+					RadarData[time-1].y += (a.data[0][3]-offset);
+					RadarData[time-1].steps++;
+				}
+				else {
+					RadarData.push({x: time/10, y: (a.data[0][3]-offset), steps: 1});
+				}
+				// Push the data into the array
+				//RadarData.push({x: a.data[0][0], y: (0.3048*(a.data[0][3]-offset))});
+			}
+			
+			var GeigerData = [];
+			var SpinRate = [];
+			function stepPayload(a) {
+				var time = Math.ceil(a.data[0][0]/1000);
+				var halfTime = Math.ceil(a.data[0][0]/500);
+				if (GeigerData[time-1]) {
+					GeigerData[time-1].y += (a.data[0][13] * (1/samples));
+				}
+				else {
+					GeigerData.push({x: time, y: (a.data[0][13] * (1/samples))});
+				}
+				SpinRate.push({x: a.data[0][0]/1000, y: (a.data[0][12]/5175)});
+			}
+			
+			function level() {
+				GeigerData.forEach(function(obj){obj.y *= ((samples-1)/samples)});
+			}
+			
+			function polishRADAR() {
+				RadarData.forEach(function(obj){obj.y *= (0.3048/obj.steps)});
+			}
+			
+			var chart = new CanvasJS.Chart("Radar",
+				{
+					zoomEnabled: true,
+					title:{
+						text: "Rocket Data"
+					},
+					toolTip:{
+						shared: false,
+					},
+					legend: {
+						cursor: "pointer",
+						itemclick: function (e) {
+						if (typeof (e.dataSeries.visible) === "undefined" || e.dataSeries.visible) {
+						e.dataSeries.visible = false;
+						} else {
+						e.dataSeries.visible = true;
+						}
+						chart.render();
+						}
+					},
+					axisX: {
+						title: "Seconds",
+						maximum: maxTime,
+					},
+					data: [
+						{
+						type: "spline",
+						toolTipContent: "{y} meters<br/>{x} Seconds",
+						showInLegend: true,
+						name: "RADAR Altitude",
+						dataPoints: RadarData
+						},
+						{
+						type: "column",
+						visible: false,
+						toolTipContent: "{y} Counts per Second",
+						axisYType: "secondary",
+						showInLegend: true,
+						name: "Geiger Count",
+						dataPoints: GeigerData
+						},
+						{
+						type: "line",
+						visible: false,
+						toolTipContent: "{y} hertz",
+						axisYType: "secondary",
+						showInLegend: true,
+						name: "Spin Rate",
+						dataPoints: SpinRate
+						},
+					]
+				});
+						
+			document.getElementById('radFiles').addEventListener('change', radFileSelect, false);
+			document.getElementById('rocFiles').addEventListener('change', rocFileSelect, false);
+
+
+		</script>
+
+
+	</body>
+</html>
+
