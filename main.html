@@ -31,24 +31,37 @@
 				bottom: 130px;
 				left: 20px;
 				right: 20px;
+				margin: 0px;
+			}
+			#axis0 {
+				width: 40px;
+				height: 1px;
+				float: left;
+			}
+			#chart{
+				left: 60px;
+				position: absolute;
+			}
+			#axis1 {
+				width: 40px;
 			}
 			#annotationContainer {
 				position: fixed;
 				height: 20px;
 				bottom: 110px;
-				left: 20px;
-				right: 20px;
+				left: 80px;
+				right: 80px;
 			}
 			#previewContainer {
 				position: fixed;
 				height: 100px;
 				bottom: 10px;
-				left: 20px;
-				right: 20px;
+				left: 80px;
+				right: 80px;
 			}
 			#legend {
 				position: fixed;
-				width: 100px;
+				width: 180px;
 				top: 80px;
 				right: 20px;
 				z-index: 1;
@@ -110,6 +123,9 @@
 			var counter = document.getElementById('progress');
 			// The various scales used by the graphs
 			var Scales = [];
+			// Placeholders
+			var max = 0;
+			var min = 0;
 			// Debug output
 			if(DEBUG){ result = []; }
 			
@@ -136,11 +152,20 @@
 						Series.push({
 							name: 'RADAR Altitude',
 							data: RadarData,
-							scale: d3.scale.linear().domain([0,120000]),
+							scale: Scales[0],
 							color: 'rgba(255, 127, 0, 0.4)',
 							renderer: 'line'
 						});
 						counter.innerHTML = rows;
+						var yAxis = new Rickshaw.Graph.Axis.Y.Scaled({
+							graph: graph,
+							orientation: 'left',
+							element: document.getElementById("axis0"),
+							width: 40,
+							height: graph.height,
+							scale: Scales[0],
+							tickFormat: Rickshaw.Fixtures.Number.formatKMBT
+						});
 						updateGraph();
 					}
 				});
@@ -170,6 +195,13 @@
 					},
 					complete : function(results) {
 						// Render the chart
+						Series.push({
+							name: 'Geiger Counts',
+							data: GeigerData,
+							scale: Scales[1],
+							color: 'rgba(255, 0, 0, 0.4)',
+							renderer: 'bar',
+						});
 						graph.render();
 						counter.innerHTML = rows;
 					}
@@ -196,11 +228,17 @@
 				var halfTime = Math.ceil(a.data[0][0]/500);
 				if (GeigerData[time-1]) {
 					GeigerData[time-1].y += (a.data[0][13] * (1/samples));
+					if (GeigerData[time-1].y > max) {
+						max = GeigerData[time-1].y;
+					}
 				}
 				else {
 					GeigerData.push({x: time, y: (a.data[0][13] * (1/samples))});
 				}
 				SpinRate.push({x: a.data[0][0]/1000, y: (a.data[0][12]/5175)});
+				if (a.data[0][12]/5175 < min) {
+					min = a.data[0][12]/5175;
+				}
 			}
 			
 			function level() {
@@ -216,6 +254,7 @@
 						max.x = obj.x;
 						}
 					});
+				Scales[0] = d3.scale.linear().domain([0, max.y]).nice();
 				annotator.add(max.x, "RADAR Apogee");
 				annotator.update();
 			}
@@ -224,11 +263,11 @@
 				graph = new Rickshaw.Graph( {
 					element: document.getElementById("chart"),
 					renderer: 'multi',
-					width: document.getElementById("graphContainer").offsetWidth,
+					width: document.getElementById("graphContainer").offsetWidth-120,
 					height: window.innerHeight-205,
 					dotSize: 5,
 					series: Series
-				} );
+				});
 				
 				annotator = new Rickshaw.Graph.Annotate({
 					graph: graph,
@@ -240,24 +279,45 @@
 					element: document.getElementById("legend")
 				});
 				
+				slider = new Rickshaw.Graph.RangeSlider.Preview({
+					graph: graph,
+					height: 100,
+					element: document.getElementById("slider")
+				});
+				
 				var xAxis = new Rickshaw.Graph.Axis.X({
 					graph: graph
 				});
 			}
+			
 			function updateGraph(){
-				$('legend').empty();
+				$('#legend').empty();
+				$('#slider').empty();
 				legend = new Rickshaw.Graph.Legend({
 					graph: graph,
 					element: document.getElementById("legend")
+				});
+				slider = new Rickshaw.Graph.RangeSlider.Preview({
+					graph: graph,
+					height: 100,
+					element: document.getElementById("slider")
+				});
+				graph.render();
+			}
+			
+			var resize = function() {
+				graph.configure({
+					width: document.getElementById("graphContainer").offsetWidth-120,
+					height: window.innerHeight-205,
 				});
 				graph.render();
 			}
 	
 			document.getElementById('radFiles').addEventListener('change', radFileSelect, false);
 			document.getElementById('rocFiles').addEventListener('change', rocFileSelect, false);
+			window.addEventListener('resize', resize); 
 			initGraph();
-
-
+			
 		</script>
 
 
