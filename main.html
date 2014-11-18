@@ -8,39 +8,114 @@
 		<meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
 
 		<title>Rocket Data</title>
+		
+		<link type="text/css" rel="stylesheet" href="css/rickshaw.min.css">
+		<link type="text/css" rel="stylesheet" href="css/jquery-ui.min.css">
 			
 		<script src="js/papaparse.min.js"></script>
-		<script src="js/canvasjs.min.js"></script>		
+		<script src="js/d3.min.js"></script>
+		<script src="js/rickshaw.min.js"></script>
+		<script src="js/jquery-2.1.1.min.js"></script>
+		<script src="js/jquery-ui.min.js"></script>
+		
+		<style>
+			#fileContainer {
+				position: fixed;
+				height: 60px;
+				left: 10px;
+				top: 10px;
+			}
+			#graphContainer {
+				position: fixed;
+				top: 75px;
+				bottom: 130px;
+				left: 20px;
+				right: 20px;
+			}
+			#annotationContainer {
+				position: fixed;
+				height: 20px;
+				bottom: 110px;
+				left: 20px;
+				right: 20px;
+			}
+			#previewContainer {
+				position: fixed;
+				height: 100px;
+				bottom: 10px;
+				left: 20px;
+				right: 20px;
+			}
+			#legend {
+				position: fixed;
+				width: 100px;
+				top: 80px;
+				right: 20px;
+				z-index: 1;
+			}
+		</style>
 
 	</head>
 
-	<body style="height:100%;">
+	<body style="margin: 0px;">
 
+		<div id="fileContainer">
+			<span>RADAR data: </span>
+			<input type="file" id="radFiles" name="files[]" multiple />
+			<span>Payload data: </span>
+			<input type="file" id="rocFiles" name="files[]" multiple />
+			<br/>
+			<output id="list">No file</output>
+			<br/>
+			<span id="progress">0</span><span> rows processed.</span>
+			<br/>
+		</div>
+		<div id="graphContainer">
+			<div id="axis0"></div>
+			<div id="chart"></div>
+			<div id="axis1"></div>
+		</div>
+		<div id="annotationContainer">
+			<div id="timeline"></div>
+		</div>
+		<div id="previewContainer">
+			<div id="slider"></div>
+		</div>
+		<div id="legend"></div>
 
-		<span>RADAR data: </span>
-		<input type="file" id="radFiles" name="files[]" multiple />
-		<span>Payload data: </span>
-		<input type="file" id="rocFiles" name="files[]" multiple />
-		<br/>
-		<output id="list">No file</output>
-		<br/>
-		<span id="progress">0</span><span> rows processed.</span>
-		<br/>
-		<div id="Radar" style="width:100%; height:80%;" />
 		<script>
-
-			var first = true;
-			var rows = 0;
-			var samples = 0;
-			var counter = document.getElementById('progress');
-			// Maximum time to display (in seconds)
-			var maxTime = 600;
+			
+			// Config
 			var DEBUG = true;
-			var result = [];
+			
+			///// Globals ////
+			// Radar Data
+			var RadarData = [];
+			// Geiger Counts
+			var GeigerData = [];
+			// Angular velocity
+			var SpinRate = [];
+			// All graphable data
+			var Series = [];
+			
+			// Needed to determine if Offset needs to be changed
+			var first = true;
+			// The first value of Radar, to set position relative to 0
+			var offset;
+			// Display counter for rows processed
+			var rows = 0;
+			// For averaging multiple files
+			var samples = 0;
+			// Handle for the counter
+			var counter = document.getElementById('progress');
+			// The various scales used by the graphs
+			var Scales = [];
+			// Debug output
+			if(DEBUG){ result = []; }
 			
 			function radFileSelect(evt) {
 				rows = 0;
-				result = [];
+				if(DEBUG){ result = []; }
 				var files = evt.target.files;
 				// This block processes the Radar file and creates a graph for it.
 				Papa.parse(files[0], {
@@ -57,9 +132,16 @@
 					complete : function(results) {
 						first = true;
 						polishRADAR();
-						// Render the chart
-						chart.render();
+						// push the data and render the chart
+						Series.push({
+							name: 'RADAR Altitude',
+							data: RadarData,
+							scale: d3.scale.linear().domain([0,120000]),
+							color: 'rgba(255, 127, 0, 0.4)',
+							renderer: 'line'
+						});
 						counter.innerHTML = rows;
+						updateGraph();
 					}
 				});
 				document.getElementById('list').innerHTML = files[0].name;
@@ -69,7 +151,7 @@
 				var files = evt.target.files;
 				time = 0;
 				rows = 0;
-				result = [];
+				if(DEBUG){ result = []; }
 				samples++;
 				level();
 				// This block will process the Payload data
@@ -88,15 +170,12 @@
 					},
 					complete : function(results) {
 						// Render the chart
-						chart.render();
+						graph.render();
 						counter.innerHTML = rows;
 					}
 				});
 				document.getElementById('list').innerHTML = files[0].name;
 			}
-			
-			var RadarData = [];
-			var offset;
 			function stepRadar(a) {
 				var time = Math.ceil(a.data[0][0]*10);
 				if (first) {
@@ -110,12 +189,8 @@
 				else {
 					RadarData.push({x: time/10, y: (a.data[0][3]-offset), steps: 1});
 				}
-				// Push the data into the array
-				//RadarData.push({x: a.data[0][0], y: (0.3048*(a.data[0][3]-offset))});
 			}
 			
-			var GeigerData = [];
-			var SpinRate = [];
 			function stepPayload(a) {
 				var time = Math.ceil(a.data[0][0]/1000);
 				var halfTime = Math.ceil(a.data[0][0]/500);
@@ -133,64 +208,54 @@
 			}
 			
 			function polishRADAR() {
+				var max = {x : 0, y : 0};
 				RadarData.forEach(function(obj){obj.y *= (0.3048/obj.steps)});
+				RadarData.forEach(function(obj){
+					if(obj.y > max.y){
+						max.y = obj.y;
+						max.x = obj.x;
+						}
+					});
+				annotator.add(max.x, "RADAR Apogee");
+				annotator.update();
 			}
 			
-			var chart = new CanvasJS.Chart("Radar",
-				{
-					zoomEnabled: true,
-					title:{
-						text: "Rocket Data"
-					},
-					toolTip:{
-						shared: false,
-					},
-					legend: {
-						cursor: "pointer",
-						itemclick: function (e) {
-						if (typeof (e.dataSeries.visible) === "undefined" || e.dataSeries.visible) {
-						e.dataSeries.visible = false;
-						} else {
-						e.dataSeries.visible = true;
-						}
-						chart.render();
-						}
-					},
-					axisX: {
-						title: "Seconds",
-						maximum: maxTime,
-					},
-					data: [
-						{
-						type: "spline",
-						toolTipContent: "{y} meters<br/>{x} Seconds",
-						showInLegend: true,
-						name: "RADAR Altitude",
-						dataPoints: RadarData
-						},
-						{
-						type: "column",
-						visible: false,
-						toolTipContent: "{y} Counts per Second",
-						axisYType: "secondary",
-						showInLegend: true,
-						name: "Geiger Count",
-						dataPoints: GeigerData
-						},
-						{
-						type: "line",
-						visible: false,
-						toolTipContent: "{y} hertz",
-						axisYType: "secondary",
-						showInLegend: true,
-						name: "Spin Rate",
-						dataPoints: SpinRate
-						},
-					]
+			function initGraph(){
+				graph = new Rickshaw.Graph( {
+					element: document.getElementById("chart"),
+					renderer: 'multi',
+					width: document.getElementById("graphContainer").offsetWidth,
+					height: window.innerHeight-205,
+					dotSize: 5,
+					series: Series
+				} );
+				
+				annotator = new Rickshaw.Graph.Annotate({
+					graph: graph,
+					element: document.getElementById("timeline")
 				});
-						
+				
+				legend = new Rickshaw.Graph.Legend({
+					graph: graph,
+					element: document.getElementById("legend")
+				});
+				
+				var xAxis = new Rickshaw.Graph.Axis.X({
+					graph: graph
+				});
+			}
+			function updateGraph(){
+				$('legend').empty();
+				legend = new Rickshaw.Graph.Legend({
+					graph: graph,
+					element: document.getElementById("legend")
+				});
+				graph.render();
+			}
+	
 			document.getElementById('radFiles').addEventListener('change', radFileSelect, false);
 			document.getElementById('rocFiles').addEventListener('change', rocFileSelect, false);
+			initGraph();
 
 
 		</script>
