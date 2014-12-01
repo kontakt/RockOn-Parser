@@ -102,8 +102,13 @@
 			var DEBUG = true;
 			
 			///// Globals ////
-			// Radar Data
-			var RadarData = [];
+			
+			// Raw data, 1000, page width
+			var Data = [ [], [], [], // Radar
+				     [], [], [], // Geiger
+				     [], [], []  // Gyro
+				     ]
+
 			// Geiger Counts
 			var GeigerData = [];
 			// Angular velocity
@@ -111,8 +116,6 @@
 			// All graphable data
 			var Series = [];
 			
-			// Needed to determine if Offset needs to be changed
-			var first = true;
 			// The first value of Radar, to set position relative to 0
 			var offset;
 			// Display counter for rows processed
@@ -131,6 +134,7 @@
 			
 			function radFileSelect(evt) {
 				rows = 0;
+				var first = true;
 				if(DEBUG){ result = []; }
 				var files = evt.target.files;
 				// This block processes the Radar file and creates a graph for it.
@@ -141,7 +145,8 @@
 						if (DEBUG) { result.push(row); }
 						// If valid, send to the aggregator
 						if (typeof (row.data[0][0]) == 'number') {
-							stepRadar(row);
+							stepRadar(row, first);
+							first = false;
 						}
 						rows++;
 					},
@@ -151,7 +156,7 @@
 						// push the data and render the chart
 						Series.push({
 							name: 'RADAR Altitude',
-							data: RadarData,
+							data: Data[0],
 							scale: Scales[0],
 							color: 'rgba(255, 127, 0, 0.4)',
 							renderer: 'line'
@@ -208,18 +213,17 @@
 				});
 				document.getElementById('list').innerHTML = files[0].name;
 			}
-			function stepRadar(a) {
+			function stepRadar(a, first) {
 				var time = Math.ceil(a.data[0][0]*10);
 				if (first) {
 					offset = a.data[0][3];
-					first = false;
 				}
-				if (RadarData[time-1]) {
-					RadarData[time-1].y += (a.data[0][3]-offset);
-					RadarData[time-1].steps++;
+				if (Data[0][time-1]) {
+					Data[0][time-1].y += (a.data[0][3]-offset);
+					Data[0][time-1].steps++;
 				}
 				else {
-					RadarData.push({x: time/10, y: (a.data[0][3]-offset), steps: 1});
+					Data[0].push({x: time/10, y: (a.data[0][3]-offset), steps: 1});
 				}
 			}
 			
@@ -247,8 +251,8 @@
 			
 			function polishRADAR() {
 				var max = {x : 0, y : 0};
-				RadarData.forEach(function(obj){obj.y *= (0.3048/obj.steps)});
-				RadarData.forEach(function(obj){
+				Data[0].forEach(function(obj){obj.y *= (0.3048/obj.steps)});
+				Data[0].forEach(function(obj){
 					if(obj.y > max.y){
 						max.y = obj.y;
 						max.x = obj.x;
@@ -259,7 +263,7 @@
 				annotator.update();
 			}
 			
-			function initGraph(){
+			function initGraph() {
 				graph = new Rickshaw.Graph( {
 					element: document.getElementById("chart"),
 					renderer: 'multi',
@@ -290,7 +294,7 @@
 				});
 			}
 			
-			function updateGraph(){
+			function updateGraph() {
 				$('#legend').empty();
 				$('#slider').empty();
 				legend = new Rickshaw.Graph.Legend({
@@ -303,6 +307,22 @@
 					element: document.getElementById("slider")
 				});
 				graph.render();
+			}
+			
+			// Downsamples the raw data into the specified amounts
+			function downsample( raw, count, force ) {
+				// If not specified, do not force recalculate
+				force = typeof force !== 'undefined' ? force : false;
+				
+				var raw_length = raw.length;
+				var refined = [];
+				
+				if ( raw_length == count || count === 0 || force ) {
+					return raw; // Data is already at proper count
+				}
+				
+				
+				return refined;
 			}
 			
 			var resize = function() {
