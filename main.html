@@ -44,6 +44,8 @@
 			}
 			#axis1 {
 				width: 40px;
+				height: 1px;
+				float: right;
 			}
 			#annotationContainer {
 				position: fixed;
@@ -109,8 +111,6 @@
 				     [], [], []  // Gyro
 				     ]
 
-			// Geiger Counts
-			var GeigerData = [];
 			// Angular velocity
 			var SpinRate = [];
 			// All graphable data
@@ -154,9 +154,10 @@
 						first = true;
 						polishRADAR();
 						// push the data and render the chart
+						Data[1] = largestTriangleThreeBuckets(Data[0], 1000);
 						Series.push({
 							name: 'RADAR Altitude',
-							data: Data[0],
+							data: Data[1],
 							scale: Scales[0],
 							color: 'rgba(255, 127, 0, 0.4)',
 							renderer: 'line'
@@ -200,12 +201,23 @@
 					},
 					complete : function(results) {
 						// Render the chart
+						Data[4] = largestTriangleThreeBuckets(Data[3], 1000);
+						Scales[1] = d3.scale.linear().domain([0, 100]).nice();
 						Series.push({
 							name: 'Geiger Counts',
-							data: GeigerData,
+							data: Data[3],
 							scale: Scales[1],
 							color: 'rgba(255, 0, 0, 0.4)',
-							renderer: 'bar',
+							renderer: 'line',
+						});
+						var yAxis = new Rickshaw.Graph.Axis.Y.Scaled({
+							graph: graph,
+							orientation: 'left',
+							element: document.getElementById("axis1"),
+							width: 40,
+							height: graph.height,
+							scale: Scales[1],
+							tickFormat: Rickshaw.Fixtures.Number.formatKMBT
 						});
 						graph.render();
 						counter.innerHTML = rows;
@@ -213,6 +225,7 @@
 				});
 				document.getElementById('list').innerHTML = files[0].name;
 			}
+			
 			function stepRadar(a, first) {
 				var time = Math.ceil(a.data[0][0]*10);
 				if (first) {
@@ -230,14 +243,14 @@
 			function stepPayload(a) {
 				var time = Math.ceil(a.data[0][0]/1000);
 				var halfTime = Math.ceil(a.data[0][0]/500);
-				if (GeigerData[time-1]) {
-					GeigerData[time-1].y += (a.data[0][13] * (1/samples));
-					if (GeigerData[time-1].y > max) {
-						max = GeigerData[time-1].y;
+				if (Data[3][time-1]) {
+					Data[3][time-1].y += (a.data[0][13] * (1/samples));
+					if (Data[3][time-1].y > max) {
+						max = Data[3][time-1].y;
 					}
 				}
 				else {
-					GeigerData.push({x: time, y: (a.data[0][13] * (1/samples))});
+					Data[3].push({x: time, y: (a.data[0][13] * (1/samples))});
 				}
 				SpinRate.push({x: a.data[0][0]/1000, y: (a.data[0][12]/5175)});
 				if (a.data[0][12]/5175 < min) {
@@ -246,7 +259,7 @@
 			}
 			
 			function level() {
-				GeigerData.forEach(function(obj){obj.y *= ((samples-1)/samples)});
+				Data[3].forEach(function(obj){obj.y *= ((samples-1)/samples)});
 			}
 			
 			function polishRADAR() {
@@ -314,15 +327,106 @@
 				// If not specified, do not force recalculate
 				force = typeof force !== 'undefined' ? force : false;
 				
-				var raw_length = raw.length;
-				var refined = [];
+				var raw_length = raw.length
 				
 				if ( raw_length == count || count === 0 || force ) {
 					return raw; // Data is already at proper count
 				}
 				
+				// Array for the output
+				var refined = [];
+				// Size of the bucket
+				var bucket = (raw_length - 2)/(count - 2);
+				// Get firzt point
+				refined[0] = raw[0];
 				
+				var bucket_start = 0
 				return refined;
+			}
+			
+			var 	floor = Math.floor,
+				ceil = Math.ceil,
+				abs = Math.abs;
+		    
+			function largestTriangleThreeBuckets(data, threshold) {
+		    
+			    var data_length = data.length;
+			    if (threshold >= data_length || threshold === 0) {
+				return data; // Nothing to do
+			    }
+		    
+			    var sampled = [],
+				sampled_index = 0;
+		    
+			    // Bucket size. Leave room for start and end data points
+			    var every = (data_length - 2) / (threshold - 2);
+		    
+			    var a = 0,  // Initially a is the first point in the triangle
+				max_area,
+				area,
+				next_a;
+		    
+			    sampled[ sampled_index++ ] = data[ a ]; // Always add the first point
+				    
+				    // Determine the boundaries for the current and next buckets
+				    var bucket_start	= 0,
+					    bucket_center 	= ceil( every );
+					    
+			    for (var i = 0; i < threshold - 2; i++) {
+					    // Calculate the boundary of the third bucket
+					    var bucket_end 		= ceil( (i + 2) * every );
+					    
+				// Calculate point average for next bucket (containing c)
+				var avg_x = 0,
+				    avg_y = 0,
+				    avg_range_start  = bucket_center,
+				    avg_range_end    = bucket_end;
+				avg_range_end = avg_range_end < data_length ? avg_range_end : data_length;
+		    
+				var avg_range_length = avg_range_end - avg_range_start;
+		    
+				for ( ; avg_range_start<avg_range_end; avg_range_start++ ) {
+				  avg_x += data[ avg_range_start ].x * 1; // * 1 enforces Number (value may be Date)
+				  avg_y += data[ avg_range_start ].y * 1;
+				}
+				avg_x /= avg_range_length;
+				avg_y /= avg_range_length;
+		    
+				// Get the range for this bucket
+				var range_offs = bucket_start,
+				    range_to   = bucket_center;
+		    
+				// Point a
+				var point_a_x = data[ a ].x * 1, // enforce Number (value may be Date)
+				    point_a_y = data[ a ].y * 1;
+		    
+				max_area = area = -1;
+					    
+					    // 2D Vector for A-C
+					    var base_x = point_a_x - avg_x,
+						    base_y = avg_y - point_a_y;
+						    
+				for ( ; range_offs < range_to; range_offs++ ) {
+				    // Calculate triangle area over three buckets
+				    area = abs( ( base_x ) * ( data[ range_offs ].y - point_a_y ) -
+						( point_a_x - data[ range_offs ].x ) * ( base_y )
+					      );
+				    if ( area > max_area ) {
+					max_area = area;
+					next_a = range_offs; // Next a is this b
+				    }
+				}
+		    
+				sampled[ sampled_index++ ] = data[ next_a ]; // Pick this point from the bucket
+				a = next_a; // This a is the next a (chosen b)
+					    
+					    bucket_start 	= bucket_center;	// Shift the buckets over by one
+					    bucket_center 	= bucket_end;		// Center becomes the start, and the end becomes the center
+			    }
+		    
+			    sampled[ sampled_index++ ] = data[ data_length - 1 ]; // Always add last
+		    
+			    return sampled;
 			}
 			
 			var resize = function() {
