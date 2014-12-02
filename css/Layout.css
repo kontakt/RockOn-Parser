@@ -1,0 +1,49 @@
+#fileContainer {
+        position: fixed;
+        height: 60px;
+        left: 10px;
+        top: 10px;
+}
+#graphContainer {
+        position: fixed;
+        top: 75px;
+        bottom: 130px;
+        left: 20px;
+        right: 20px;
+        margin: 0px;
+}
+#axis0 {
+        width: 40px;
+        height: 1px;
+        float: left;
+}
+#chart{
+        left: 60px;
+        position: absolute;
+}
+#axis1 {
+        width: 40px;
+        height: 1px;
+        float: right;
+}
+#annotationContainer {
+        position: fixed;
+        height: 20px;
+        bottom: 110px;
+        left: 80px;
+        right: 80px;
+}
+#previewContainer {
+        position: fixed;
+        height: 100px;
+        bottom: 10px;
+        left: 80px;
+        right: 80px;
+}
+#legend {
+        position: fixed;
+        width: 180px;
+        top: 80px;
+        right: 20px;
+        z-index: 1;
+}
