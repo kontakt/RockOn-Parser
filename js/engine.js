@@ -10,8 +10,6 @@ var Data = [ [], [], [], // Radar
              [], [], []  // Gyro
              ]
 
-// Angular velocity
-var SpinRate = [];
 // All graphable data
 var Series = [];
 
@@ -56,7 +54,7 @@ function radFileSelect(evt) {
                                 name: 'RADAR Altitude',
                                 data: Data[1],
                                 scale: Scales[0],
-                                color: 'rgba(255, 127, 0, 0.4)',
+                                color: 'rgba(255, 127, 0, 1.0)',
                                 renderer: 'line'
                         });
                         counter.innerHTML = rows;
@@ -99,13 +97,21 @@ function rocFileSelect(evt) {
                 complete : function(results) {
                         // Render the chart
                         Data[4] = largestTriangleThreeBuckets(Data[3], 1000);
-                        Scales[1] = d3.scale.linear().domain([0, 100]).nice();
+                        Data[7] = largestTriangleThreeBuckets(Data[6], 1000);
+                        Scales[1] = d3.scale.linear().domain([-5, 50]).nice();
                         Series.push({
                                 name: 'Geiger Counts',
                                 data: Data[4],
                                 scale: Scales[1],
                                 color: 'rgba(255, 0, 0, 0.4)',
                                 renderer: 'bar',
+                        });
+                        Series.push({
+                                name: 'Gyroscope',
+                                data: Data[7],
+                                color: 'rgba(0, 255, 0, 0.8)',
+                                scale: Scales[1],
+                                renderer: 'line',
                         });
                         var yAxis = new Rickshaw.Graph.Axis.Y.Scaled({
                                 graph: graph,
@@ -116,43 +122,52 @@ function rocFileSelect(evt) {
                                 scale: Scales[1],
                                 tickFormat: Rickshaw.Fixtures.Number.formatKMBT
                         });
-                        graph.render();
+                        updateGraph();
                         counter.innerHTML = rows;
                 }
         });
         document.getElementById('list').innerHTML = files[0].name;
 }
 
+// Processing routine for the Radar data
 function stepRadar(a, first) {
-        var time = Math.ceil(a.data[0][0]*10);
-        if (first) {
-                offset = a.data[0][3];
-        }
-        if (Data[0][time-1]) {
-                Data[0][time-1].y += (a.data[0][3]-offset);
-                Data[0][time-1].steps++;
-        }
-        else {
-                Data[0].push({x: time/10, y: (a.data[0][3]-offset), steps: 1});
-        }
+    
+    // Determine the time to nearest second, rounded up
+    var time = Math.ceil(a.data[0][0]*10);
+    
+    // For the first step only, get the offset value to base altitude at 0 
+    if (first) {
+            offset = a.data[0][3];
+    }
+    
+    // If still in the same second
+    if (Data[0][time-1]) {
+            Data[0][time-1].y += (a.data[0][3]-offset); // Add in the altitude
+            Data[0][time-1].steps++;    // Note the number of combined values
+    }
+    // If in a new second
+    else {
+            Data[0].push({x: time/10, y: (a.data[0][3]-offset), steps: 1}); // Add a new point
+    }
 }
 
+// Payload processing routine
 function stepPayload(a) {
-        var time = Math.ceil(a.data[0][0]/1000);
-        var halfTime = Math.ceil(a.data[0][0]/500);
-        if (Data[3][time-1]) {
-                Data[3][time-1].y += (a.data[0][13] * (1/samples));
-                if (Data[3][time-1].y > max) {
-                        max = Data[3][time-1].y;
-                }
-        }
-        else {
-                Data[3].push({x: time, y: (a.data[0][13] * (1/samples))});
-        }
-        SpinRate.push({x: a.data[0][0]/1000, y: (a.data[0][12]/5175)});
-        if (a.data[0][12]/5175 < min) {
-                min = a.data[0][12]/5175;
-        }
+    var time = Math.ceil(a.data[0][0]/1000);
+    var halfTime = Math.ceil(a.data[0][0]/500);
+    if (Data[3][time-1]) {
+            Data[3][time-1].y += (a.data[0][13] * (1/samples));
+            if (Data[3][time-1].y > max) {
+                    max = Data[3][time-1].y;
+            }
+    }
+    else {
+            Data[3].push({x: time, y: (a.data[0][13] * (1/samples))});
+    }
+    Data[6].push({x: a.data[0][0]/1000, y: (a.data[0][12]/5175)});
+    if (a.data[0][12]/5175 < min) {
+            min = a.data[0][12]/5175;
+    }
 }
 
 function level() {
