@@ -28,6 +28,7 @@ var min = 0;
 if(DEBUG){ result = []; }
 
 function radFileSelect(evt) {
+        var start = performance.now();
         rows = 0;
         var first = true;
         if(DEBUG){ result = []; }
@@ -46,40 +47,78 @@ function radFileSelect(evt) {
                         rows++;
                 },
                 complete : function(results) {
-                        first = true;
-                        polishRADAR();
-                        // push the data and render the chart
-                        Data[1] = largestTriangleThreeBuckets(Data[0], 1000);
-                        Series.push({
-                                name: 'RADAR Altitude',
-                                data: Data[1],
-                                scale: Scales[0],
-                                color: 'rgba(255, 127, 0, 1.0)',
-                                renderer: 'line'
-                        });
-                        counter.innerHTML = rows;
-                        var yAxis = new Rickshaw.Graph.Axis.Y.Scaled({
-                                graph: graph,
-                                orientation: 'left',
-                                element: document.getElementById("axis0"),
-                                width: 40,
-                                height: graph.height,
-                                scale: Scales[0],
-                                tickFormat: Rickshaw.Fixtures.Number.formatKMBT
-                        });
-                        updateGraph();
+                        finalizeRADAR();
+                        console.log(rows + " RADAR entries processed in " + (performance.now()-start).toFixed(2) + " ms");
                 }
         });
         document.getElementById('list').innerHTML = files[0].name;
 }
 
+// Processing routine for the Radar data
+function stepRadar(a, first) {
+    
+        // Determine the time to nearest second, rounded up
+        var time = Math.ceil(a.data[0][0]*10);
+        
+        // For the first step only, get the offset value to base altitude at 0 
+        if (first) {
+                offset = a.data[0][3];
+        }
+        
+        // If still in the same second
+        if (Data[0][time-1]) {
+                Data[0][time-1].y += (a.data[0][3]-offset); // Add in the altitude
+                Data[0][time-1].steps++;    // Note the number of combined values
+        }
+        // If in a new second
+        else {
+                Data[0].push({x: time/10, y: (a.data[0][3]-offset), steps: 1}); // Add a new point
+        }
+}
+
+function finalizeRADAR() {
+        var max = {x : 0, y : 0};
+        Data[0].forEach(function(obj){obj.y *= (0.3048/obj.steps)});
+        Data[0].forEach(function(obj){
+                if(obj.y > max.y){
+                        max.y = obj.y;
+                        max.x = obj.x;
+                        }
+                });
+        Scales[0] = d3.scale.linear().domain([0, max.y]).nice();
+        annotator.add(max.x, "RADAR Apogee");
+        annotator.update();
+        
+        // push the data and render the chart
+        Data[1] = largestTriangleThreeBuckets(Data[0], 1000);
+        
+        Series.push({
+                name: 'RADAR Altitude',
+                data: Data[1],
+                scale: Scales[0],
+                color: 'rgba(255, 127, 0, 1.0)',
+                renderer: 'line'
+        });
+        var yAxis = new Rickshaw.Graph.Axis.Y.Scaled({
+                graph: graph,
+                orientation: 'left',
+                element: document.getElementById("axis0"),
+                width: 40,
+                height: graph.height,
+                scale: Scales[0],
+                tickFormat: Rickshaw.Fixtures.Number.formatKMBT
+        });
+        
+        updateGraph();
+}
+
 function rocFileSelect(evt) {
+        var start = performance.now();
         var files = evt.target.files;
         time = 0;
         rows = 0;
         if(DEBUG){ result = []; }
         samples++;
-        level();
         // This block will process the Payload data
         Papa.parse(files[0], {
                 dynamicTyping : true,
@@ -95,97 +134,61 @@ function rocFileSelect(evt) {
                         rows++;
                 },
                 complete : function(results) {
-                        // Render the chart
-                        Data[4] = largestTriangleThreeBuckets(Data[3], 1000);
-                        Data[7] = largestTriangleThreeBuckets(Data[6], 1000);
-                        Scales[1] = d3.scale.linear().domain([-5, 50]).nice();
-                        Series.push({
-                                name: 'Geiger Counts',
-                                data: Data[4],
-                                scale: Scales[1],
-                                color: 'rgba(255, 0, 0, 0.4)',
-                                renderer: 'bar',
-                        });
-                        Series.push({
-                                name: 'Gyroscope',
-                                data: Data[7],
-                                color: 'rgba(0, 255, 0, 0.8)',
-                                scale: Scales[1],
-                                renderer: 'line',
-                        });
-                        var yAxis = new Rickshaw.Graph.Axis.Y.Scaled({
-                                graph: graph,
-                                orientation: 'left',
-                                element: document.getElementById("axis1"),
-                                width: 40,
-                                height: graph.height,
-                                scale: Scales[1],
-                                tickFormat: Rickshaw.Fixtures.Number.formatKMBT
-                        });
-                        updateGraph();
-                        counter.innerHTML = rows;
+                        finalizePAYLOAD();
+                        console.log(rows + " Payload entries processed in " + (performance.now()-start).toFixed(2) + " ms");
                 }
         });
         document.getElementById('list').innerHTML = files[0].name;
 }
 
-// Processing routine for the Radar data
-function stepRadar(a, first) {
-    
-    // Determine the time to nearest second, rounded up
-    var time = Math.ceil(a.data[0][0]*10);
-    
-    // For the first step only, get the offset value to base altitude at 0 
-    if (first) {
-            offset = a.data[0][3];
-    }
-    
-    // If still in the same second
-    if (Data[0][time-1]) {
-            Data[0][time-1].y += (a.data[0][3]-offset); // Add in the altitude
-            Data[0][time-1].steps++;    // Note the number of combined values
-    }
-    // If in a new second
-    else {
-            Data[0].push({x: time/10, y: (a.data[0][3]-offset), steps: 1}); // Add a new point
-    }
-}
-
 // Payload processing routine
 function stepPayload(a) {
-    var time = Math.ceil(a.data[0][0]/1000);
-    var halfTime = Math.ceil(a.data[0][0]/500);
-    if (Data[3][time-1]) {
-            Data[3][time-1].y += (a.data[0][13] * (1/samples));
-            if (Data[3][time-1].y > max) {
-                    max = Data[3][time-1].y;
-            }
-    }
-    else {
-            Data[3].push({x: time, y: (a.data[0][13] * (1/samples))});
-    }
-    Data[6].push({x: a.data[0][0]/1000, y: (a.data[0][12]/5175)});
-    if (a.data[0][12]/5175 < min) {
-            min = a.data[0][12]/5175;
-    }
+        var time = Math.ceil(a.data[0][0]/1000);
+        var halfTime = Math.ceil(a.data[0][0]/500);
+        if (Data[3][time-1]) {
+                Data[3][time-1].y += (a.data[0][13] * (1/samples));
+                if (Data[3][time-1].y > max) {
+                        max = Data[3][time-1].y;
+                }
+        }
+        else {
+                Data[3].push({x: time, y: (a.data[0][13] * (1/samples))});
+        }
+        Data[6].push({x: a.data[0][0]/1000, y: (a.data[0][12]/5175)});
+        if (a.data[0][12]/5175 < min) {
+                min = a.data[0][12]/5175;
+        }
 }
 
-function level() {
-        Data[3].forEach(function(obj){obj.y *= ((samples-1)/samples)});
-}
-
-function polishRADAR() {
-        var max = {x : 0, y : 0};
-        Data[0].forEach(function(obj){obj.y *= (0.3048/obj.steps)});
-        Data[0].forEach(function(obj){
-                if(obj.y > max.y){
-                        max.y = obj.y;
-                        max.x = obj.x;
-                        }
-                });
-        Scales[0] = d3.scale.linear().domain([0, max.y]).nice();
-        annotator.add(max.x, "RADAR Apogee");
-        annotator.update();
+function finalizePAYLOAD(){
+        // Render the chart
+        Data[4] = largestTriangleThreeBuckets(Data[3], 1000);
+        Data[7] = largestTriangleThreeBuckets(Data[6], 1000);
+        Scales[1] = d3.scale.linear().domain([-5, 50]).nice();
+        Series.push({
+                name: 'Geiger Counts',
+                data: Data[4],
+                scale: Scales[1],
+                color: 'rgba(255, 0, 0, 0.4)',
+                renderer: 'bar',
+        });
+        Series.push({
+                name: 'Gyroscope',
+                data: Data[7],
+                color: 'rgba(0, 255, 0, 0.8)',
+                scale: Scales[1],
+                renderer: 'line',
+        });
+        var yAxis = new Rickshaw.Graph.Axis.Y.Scaled({
+                graph: graph,
+                orientation: 'left',
+                element: document.getElementById("axis1"),
+                width: 40,
+                height: graph.height,
+                scale: Scales[1],
+                tickFormat: Rickshaw.Fixtures.Number.formatKMBT
+        });
+        updateGraph();
 }
 
 function initGraph() {
@@ -234,62 +237,58 @@ function updateGraph() {
         graph.render();
 }
 
-
-var 	floor = Math.floor,
-        ceil = Math.ceil,
-        abs = Math.abs;
-
 function largestTriangleThreeBuckets(data, threshold) {
+        var 	ceil = Math.ceil,
+                abs = Math.abs;
+        var data_length = data.length;
+        if (threshold >= data_length || threshold === 0) {
+                return data; // Nothing to do
+        }
 
-    var data_length = data.length;
-    if (threshold >= data_length || threshold === 0) {
-        return data; // Nothing to do
-    }
+        var     sampled = [],
+                sampled_index = 0;
 
-    var sampled = [],
-        sampled_index = 0;
+        // Bucket size. Leave room for start and end data points
+        var every = (data_length - 2) / (threshold - 2);
 
-    // Bucket size. Leave room for start and end data points
-    var every = (data_length - 2) / (threshold - 2);
+        var a = 0,  // Initially a is the first point in the triangle
+                max_area,
+                area,
+                next_a;
 
-    var a = 0,  // Initially a is the first point in the triangle
-        max_area,
-        area,
-        next_a;
-
-    sampled[ sampled_index++ ] = data[ a ]; // Always add the first point
+        sampled[ sampled_index++ ] = data[ a ]; // Always add the first point
             
-            // Determine the boundaries for the current and next buckets
-            var bucket_start	= 0,
-                    bucket_center 	= ceil( every );
-                    
-    for (var i = 0; i < threshold - 2; i++) {
-                    // Calculate the boundary of the third bucket
-                    var bucket_end 		= ceil( (i + 2) * every );
+                // Determine the boundaries for the current and next buckets
+        var     bucket_start	= 0,
+                bucket_center 	= ceil( every );
+            
+        for (var i = 0; i < threshold - 2; i++) {
+                // Calculate the boundary of the third bucket
+                var bucket_end 		= ceil( (i + 2) * every );
                     
         // Calculate point average for next bucket (containing c)
-        var avg_x = 0,
-            avg_y = 0,
-            avg_range_start  = bucket_center,
-            avg_range_end    = bucket_end;
-        avg_range_end = avg_range_end < data_length ? avg_range_end : data_length;
+                var     avg_x = 0,
+                        avg_y = 0,
+                        avg_range_start  = bucket_center,
+                        avg_range_end    = bucket_end;
+                avg_range_end = avg_range_end < data_length ? avg_range_end : data_length;
 
-        var avg_range_length = avg_range_end - avg_range_start;
+                var     avg_range_length = avg_range_end - avg_range_start;
 
-        for ( ; avg_range_start<avg_range_end; avg_range_start++ ) {
-          avg_x += data[ avg_range_start ].x * 1; // * 1 enforces Number (value may be Date)
-          avg_y += data[ avg_range_start ].y * 1;
-        }
-        avg_x /= avg_range_length;
-        avg_y /= avg_range_length;
+                for ( ; avg_range_start<avg_range_end; avg_range_start++ ) {
+                        avg_x += data[ avg_range_start ].x * 1; // * 1 enforces Number (value may be Date)
+                        avg_y += data[ avg_range_start ].y * 1;
+                }
+                avg_x /= avg_range_length;
+                avg_y /= avg_range_length;
 
-        // Get the range for this bucket
-        var range_offs = bucket_start,
-            range_to   = bucket_center;
+                // Get the range for this bucket
+                var     range_offs = bucket_start,
+                        range_to   = bucket_center;
 
-        // Point a
-        var point_a_x = data[ a ].x * 1, // enforce Number (value may be Date)
-            point_a_y = data[ a ].y * 1;
+                // Point a
+                var     point_a_x = data[ a ].x * 1, // enforce Number (value may be Date)
+                        point_a_y = data[ a ].y * 1;
 
         max_area = area = -1;
                     
