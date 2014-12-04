@@ -4,10 +4,10 @@ var DEBUG = false;
 
 ///// Globals ////
 
-// Raw data, 1000, page width
-var Data = [ [], [], [], // Radar
-             [], [], [], // Geiger
-             [], [], []  // Gyro
+// Raw data, Downsampled
+var Data = [ [], [], // Radar
+             [], [], // Geiger
+             [], []  // Gyro
              ]
 
 // All graphable data
@@ -145,16 +145,16 @@ function rocFileSelect(evt) {
 function stepPayload(a) {
         var time = Math.ceil(a.data[0][0]/1000);
         var halfTime = Math.ceil(a.data[0][0]/500);
-        if (Data[3][time-1]) {
-                Data[3][time-1].y += (a.data[0][13] * (1/samples));
-                if (Data[3][time-1].y > max) {
-                        max = Data[3][time-1].y;
+        if (Data[2][time-1]) {
+                Data[2][time-1].y += (a.data[0][13] * (1/samples));
+                if (Data[2][time-1].y > max) {
+                        max = Data[2][time-1].y;
                 }
         }
         else {
-                Data[3].push({x: time, y: (a.data[0][13] * (1/samples))});
+                Data[2].push({x: time, y: (a.data[0][13] * (1/samples))});
         }
-        Data[6].push({x: a.data[0][0]/1000, y: (a.data[0][12]/5175)});
+        Data[4].push({x: a.data[0][0]/1000, y: (a.data[0][12]/5175)});
         if (a.data[0][12]/5175 < min) {
                 min = a.data[0][12]/5175;
         }
@@ -162,19 +162,19 @@ function stepPayload(a) {
 
 function finalizePAYLOAD(){
         // Render the chart
-        Data[4] = largestTriangleThreeBuckets(Data[3], 1000);
-        Data[7] = largestTriangleThreeBuckets(Data[6], 1000);
+        Data[3] = largestTriangleThreeBuckets(Data[2], 1000);
+        Data[5] = largestTriangleThreeBuckets(Data[4], 1000);
         Scales[1] = d3.scale.linear().domain([-5, 50]).nice();
         Series.push({
                 name: 'Geiger Counts',
-                data: Data[4],
+                data: Data[3],
                 scale: Scales[1],
                 color: 'rgba(255, 0, 0, 0.4)',
-                renderer: 'bar',
+                renderer: 'line',
         });
         Series.push({
                 name: 'Gyroscope',
-                data: Data[7],
+                data: Data[5],
                 color: 'rgba(0, 255, 0, 0.8)',
                 scale: Scales[1],
                 renderer: 'line',
@@ -234,6 +234,32 @@ function updateGraph() {
                 height: 100,
                 element: document.getElementById("slider")
         });
+        highlighter = new Rickshaw.Graph.Behavior.Series.Highlight( {
+                graph: graph,
+                legend: legend
+        });
+        shelving = new Rickshaw.Graph.Behavior.Series.Toggle( {
+                graph: graph,
+                legend: legend
+        });
+        hoverDetail = new Rickshaw.Graph.HoverDetail( {
+                graph: graph,
+                xFormatter: function(x) {
+                        return (x + " seconds");
+                }
+        });
+
+
+        graph.update();
+        graph.render();
+}
+
+function resample ( threshold ){
+        for (var i = 0; i < Data.length; i+=2) {
+                Data[i+1] = largestTriangleThreeBuckets(Data[i], threshold);
+                Series[i/2].data = Data[i+1];
+        }
+        graph.update();
         graph.render();
 }
 
