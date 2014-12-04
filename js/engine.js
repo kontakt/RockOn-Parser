@@ -1,6 +1,7 @@
 
 // Config
 var DEBUG = false;
+var MAX_POINTS = 1000;
 
 ///// Globals ////
 
@@ -12,6 +13,8 @@ var Data = [ [], [], // Radar
 
 // All graphable data
 var Series = [];
+// The various scales used by the graphs
+var Scales = [];
 
 // The first value of Radar, to set position relative to 0
 var offset;
@@ -19,8 +22,6 @@ var offset;
 var rows = 0;
 // For averaging multiple files
 var samples = 0;
-// The various scales used by the graphs
-var Scales = [];
 // Placeholders
 var max = 0;
 var min = 0;
@@ -90,7 +91,7 @@ function finalizeRADAR() {
         annotator.update();
         
         // push the data and render the chart
-        Data[1] = largestTriangleThreeBuckets(Data[0], 1000);
+        Data[1] = largestTriangleThreeBuckets(Data[0], MAX_POINTS);
         
         Series.push({
                 name: 'RADAR Altitude',
@@ -143,8 +144,10 @@ function rocFileSelect(evt) {
 
 // Payload processing routine
 function stepPayload(a) {
-        var time = Math.ceil(a.data[0][0]/1000);
-        var halfTime = Math.ceil(a.data[0][0]/500);
+        var time = Math.ceil(a.data[0][0]/1000);        // Time in seconds
+        var halfTime = Math.ceil(a.data[0][0]/500);     // Time in half-seconds
+        
+        // Geiger Counter
         if (Data[2][time-1]) {
                 Data[2][time-1].y += (a.data[0][13] * (1/samples));
                 if (Data[2][time-1].y > max) {
@@ -154,6 +157,8 @@ function stepPayload(a) {
         else {
                 Data[2].push({x: time, y: (a.data[0][13] * (1/samples))});
         }
+        
+        // Gyroscopic Data (Converted to Hz) 
         Data[4].push({x: a.data[0][0]/1000, y: (a.data[0][12]/5175)});
         if (a.data[0][12]/5175 < min) {
                 min = a.data[0][12]/5175;
@@ -162,8 +167,8 @@ function stepPayload(a) {
 
 function finalizePAYLOAD(){
         // Render the chart
-        Data[3] = largestTriangleThreeBuckets(Data[2], 1000);
-        Data[5] = largestTriangleThreeBuckets(Data[4], 1000);
+        Data[3] = largestTriangleThreeBuckets(Data[2], MAX_POINTS);
+        Data[5] = largestTriangleThreeBuckets(Data[4], MAX_POINTS);
         Scales[1] = d3.scale.linear().domain([-5, 50]).nice();
         Series.push({
                 name: 'Geiger Counts',
@@ -249,12 +254,15 @@ function updateGraph() {
                 }
         });
 
-
         graph.update();
         graph.render();
 }
 
 function resample ( threshold ){
+        if (threshold > MAX_POINTS) {
+                console.error("Resample exceeds maximum number of points");
+                return;
+        }
         for (var i = 0; i < Data.length; i+=2) {
                 Data[i+1] = largestTriangleThreeBuckets(Data[i], threshold);
                 Series[i/2].data = Data[i+1];
