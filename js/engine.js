@@ -8,8 +8,11 @@ var MAX_POINTS = 1000;
 // Raw data, Downsampled
 var Data = [ [], [], // Radar
              [], [], // Geiger
-             [], []  // Gyro
-             ]
+             [], [], // Gyro
+             [], [], // Temperature
+             [], [], // Pressure
+             [], [], // Humiditiy
+             [] ]
 
 // All graphable data
 var Series = [];
@@ -94,10 +97,10 @@ function finalizeRADAR() {
         Data[1] = largestTriangleThreeBuckets(Data[0], MAX_POINTS);
         
         Series.push({
-                name: 'RADAR Altitude',
+                name: 'RADAR Altitude (m)',
                 data: Data[1],
                 scale: Scales[0],
-                color: 'rgba(255, 127, 0, 1.0)',
+                color: palette.color(),
                 renderer: 'line'
         });
         var yAxis = new Rickshaw.Graph.Axis.Y.Scaled({
@@ -158,29 +161,64 @@ function stepPayload(a) {
                 Data[2].push({x: time, y: (a.data[0][13] * (1/samples))});
         }
         
-        // Gyroscopic Data (Converted to Hz) 
-        Data[4].push({x: a.data[0][0]/1000, y: (a.data[0][12]/5175)});
+        // Gyroscopic Data, Z-axis (Converted to Hz) 
+        Data[4].push({x: time, y: (a.data[0][12]/5175)});
         if (a.data[0][12]/5175 < min) {
                 min = a.data[0][12]/5175;
         }
+        
+        // Temperature (Deg C)
+        var T = (a.data[0][8] / 10); // Temperature
+        Data[6].push({x: a.data[0][0]/1000, y: T});
+        // Pressure (kPa)
+        Data[8].push({x: a.data[0][0]/1000, y: (a.data[0][9] / 1000)});
+        // Humidity
+        var V = (a.data[0][14] / 1023) // Voltage read from humidity module
+        Data[10].push({x: a.data[0][0]/1000, y: (T*(0.0557419-(0.348387*V))+(170.097*V)-27.2155)}); // Compensated for temperature
+        // Accelerometer Data routines
+        /* ADD */
 }
 
 function finalizePAYLOAD(){
         // Render the chart
         Data[3] = largestTriangleThreeBuckets(Data[2], MAX_POINTS);
         Data[5] = largestTriangleThreeBuckets(Data[4], MAX_POINTS);
-        Scales[1] = d3.scale.linear().domain([-5, 50]).nice();
+        Data[7] = largestTriangleThreeBuckets(Data[6], MAX_POINTS);
+        Data[9] = largestTriangleThreeBuckets(Data[8], MAX_POINTS);
+        Data[11] = largestTriangleThreeBuckets(Data[10], MAX_POINTS);
+        Scales[1] = d3.scale.linear().domain([-5, 200]).nice();
         Series.push({
-                name: 'Geiger Counts',
+                name: 'Geiger Counts (Cps)',
                 data: Data[3],
                 scale: Scales[1],
-                color: 'rgba(255, 0, 0, 0.4)',
+                color: palette.color(),
                 renderer: 'line',
         });
         Series.push({
-                name: 'Gyroscope',
+                name: 'Gyroscope (Hz, Z-Axis)',
                 data: Data[5],
-                color: 'rgba(0, 255, 0, 0.8)',
+                color: palette.color(),
+                scale: Scales[1],
+                renderer: 'line',
+        });
+        Series.push({
+                name: 'Temperature (Deg C)',
+                data: Data[7],
+                color: palette.color(),
+                scale: Scales[1],
+                renderer: 'line',
+        });
+        Series.push({
+                name: 'Pressure (kPa)',
+                data: Data[9],
+                color: palette.color(),
+                scale: Scales[1],
+                renderer: 'line',
+        });
+        Series.push({
+                name: 'Humidity (%)',
+                data: Data[11],
+                color: palette.color(),
                 scale: Scales[1],
                 renderer: 'line',
         });
@@ -205,6 +243,8 @@ function initGraph() {
                 dotSize: 5,
                 series: Series
         });
+        
+        palette = new Rickshaw.Color.Palette( { scheme: 'spectrum14' } );
         
         annotator = new Rickshaw.Graph.Annotate({
                 graph: graph,
