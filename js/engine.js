@@ -2,6 +2,7 @@
 // Config
 var DEBUG = false;
 var MAX_POINTS = 1000;
+var MAX_TIME = 1000;
 
 ///// Globals ////
 
@@ -11,8 +12,8 @@ var Data = [ [], [], // Radar
              [], [], // Gyro
              [], [], // Temperature
              [], [], // Pressure
-             [], [], // Humiditiy
-             [] ]
+             [], [] // Humiditiy
+             ]
 
 // All graphable data
 var Series = [];
@@ -21,15 +22,22 @@ var Scales = [];
 
 // The first value of Radar, to set position relative to 0
 var offset;
-// Display counter for rows processed
+// Counter for rows processed
 var rows = 0;
 // For averaging multiple files
 var samples = 0;
-// Placeholders
+// For the minimum and maximum scale values
 var max = 0;
 var min = 0;
+// For position calculation
+var vel = [0, 0, 0];
+var pos = [0, 0, 0];
+var lastTime = 0;
 // Debug output
 if(DEBUG){ result = []; }
+var     velocity = [],
+        acceleration = [],
+        position = [];
 
 function radFileSelect(evt) {
         var start = performance.now();
@@ -132,7 +140,7 @@ function rocFileSelect(evt) {
                         row.data[0].forEach(function(obj, index, arr){if(obj == ""){arr.splice(index, 1);}});
                         if (DEBUG) { result.push(row); }
                         // If valid data, send to the aggregator
-                        if (typeof (row.data[0][0]) == 'number') {
+                        if (typeof (row.data[0][0]) == 'number' && row.data[0][0] <= 1000000) {
                                 stepPayload(row);
                         }
                         rows++;
@@ -147,36 +155,83 @@ function rocFileSelect(evt) {
 
 // Payload processing routine
 function stepPayload(a) {
-        var time = Math.ceil(a.data[0][0]/1000);        // Time in seconds
-        var halfTime = Math.ceil(a.data[0][0]/500);     // Time in half-seconds
+        var currentTime = a.data[0][0];     // Time in ms
+        var time = currentTime/1000;        // Time in seconds
+        var halfTime = currentTime/500;     // Time in half-seconds
         
         // Geiger Counter
         if (Data[2][time-1]) {
                 Data[2][time-1].y += (a.data[0][13] * (1/samples));
-                if (Data[2][time-1].y > max) {
-                        max = Data[2][time-1].y;
-                }
         }
         else {
                 Data[2].push({x: time, y: (a.data[0][13] * (1/samples))});
         }
         
-        // Gyroscopic Data, Z-axis (Converted to Hz) 
-        Data[4].push({x: time, y: (a.data[0][12]/5175)});
-        if (a.data[0][12]/5175 < min) {
-                min = a.data[0][12]/5175;
-        }
+        // Gyroscopic Data, Z-axis (Converted to Hz)
+        var H = a.data[0][12]/5175;
+        Data[4].push({x: time, y: H});
+        min = H < min ? H : min;
         
         // Temperature (Deg C)
-        var T = (a.data[0][8] / 10); // Temperature
+        var T = (a.data[0][8] / 10);
         Data[6].push({x: a.data[0][0]/1000, y: T});
+        
         // Pressure (kPa)
-        Data[8].push({x: a.data[0][0]/1000, y: (a.data[0][9] / 1000)});
+        var P = (a.data[0][9] / 1000);
+        Data[8].push({x: a.data[0][0]/1000, y: P });
+        max = P > max ? P : max;
+        
         // Humidity
         var V = (a.data[0][14] / 1023) // Voltage read from humidity module
         Data[10].push({x: a.data[0][0]/1000, y: (T*(0.0557419-(0.348387*V))+(170.097*V)-27.2155)}); // Compensated for temperature
+        
         // Accelerometer Data routines
-        /* ADD */
+        var delta = currentTime - lastTime;     // Time passed since last point
+        var accel = [0, 0, 0];                  // Holds current 3 axis acceleration 
+        var count = [0, 0, 0];                  // Number of values to average
+        if (120 < a.data[0][2] < 550) {
+               accel[0] += (a.data[0][2]-335)/61.2;
+               count[0]++;
+        }
+        if (120 < a.data[0][3] < 550) {
+               accel[1] += (a.data[0][3]-335)/61.2;
+               count[1]++;
+        }
+        if (120 < a.data[0][4] < 550) {
+               accel[2] += (a.data[0][4]-335)/61.2;
+               count[2]++;
+        }
+        if (30 < a.data[0][5] < 650) {
+               accel[0] += (a.data[0][5]-335)/12.9;
+               count[0]++;
+        }
+        if (30 < a.data[0][6] < 650) {
+               accel[1] += (a.data[0][6]-335)/12.9;
+               count[1]++;
+        }
+        if (30 < a.data[0][7] < 650) {
+               accel[2] += (a.data[0][7]-335)/12.9;
+               count[2]++;
+        }
+        accel[2] += (a.data[0][8]-510)/7.76;
+        count[2]++;
+        
+        accel[0] /= count[0];
+        accel[1] /= count[1];
+        accel[2] /= count[2];        
+        acceleration.push(accel[2]);
+        
+        vel[0] += accel[0]*delta;
+        vel[1] += accel[1]*delta;
+        vel[2] += accel[2]*delta;
+        velocity.push(vel[2]);
+        
+        pos[0] += vel[0]*delta;
+        pos[1] += vel[1]*delta;
+        pos[2] += vel[2]*delta;
+        position.push(pos[2]);
+                
+        lastTime = currentTime;
 }
 
 function finalizePAYLOAD(){
@@ -186,7 +241,7 @@ function finalizePAYLOAD(){
         Data[7] = largestTriangleThreeBuckets(Data[6], MAX_POINTS);
         Data[9] = largestTriangleThreeBuckets(Data[8], MAX_POINTS);
         Data[11] = largestTriangleThreeBuckets(Data[10], MAX_POINTS);
-        Scales[1] = d3.scale.linear().domain([-5, 200]).nice();
+        Scales[1] = d3.scale.linear().domain([min, max]).nice();
         Series.push({
                 name: 'Geiger Counts (Cps)',
                 data: Data[3],
