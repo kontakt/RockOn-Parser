@@ -15,6 +15,14 @@ var Data = [ [], [], // Radar
              [], [] // Humiditiy
              ]
 
+var MetaData = [
+                [0, 0],
+                [0, 0],
+                [0, 0],
+                [0, 0],
+                [0, 0],
+                [0, 0]
+                ]
 // All graphable data
 var Series = [];
 // The various scales used by the graphs
@@ -160,30 +168,39 @@ function stepPayload(a) {
         var halfTime = currentTime/500;     // Time in half-seconds
         
         // Geiger Counter
+        var gCount = a.data[0][13];
+        MetaData[1][0] = gCount < MetaData[1][0] ? gCount : MetaData[1][0];
+        MetaData[1][1] = gCount > MetaData[1][1] ? gCount : MetaData[1][1];
         if (Data[2][time-1]) {
-                Data[2][time-1].y += (a.data[0][13] * (1/samples));
+                Data[2][time-1].y += (gCount * (1/samples));
         }
         else {
-                Data[2].push({x: time, y: (a.data[0][13] * (1/samples))});
+                Data[2].push({x: time, y: (gCount * (1/samples))});
         }
         
         // Gyroscopic Data, Z-axis (Converted to Hz)
         var H = a.data[0][12]/5175;
         Data[4].push({x: time, y: H});
-        min = H < min ? H : min;
+        MetaData[2][0] = H < MetaData[2][0] ? H : MetaData[2][0];
+        MetaData[2][1] = H > MetaData[2][1] ? H : MetaData[2][1];
         
         // Temperature (Deg C)
         var T = (a.data[0][8] / 10);
         Data[6].push({x: a.data[0][0]/1000, y: T});
+        MetaData[3][0] = T < MetaData[3][0] ? T : MetaData[3][0];
+        MetaData[3][1] = T > MetaData[3][1] ? T : MetaData[3][1];
         
         // Pressure (kPa)
         var P = (a.data[0][9] / 1000);
         Data[8].push({x: a.data[0][0]/1000, y: P });
-        max = P > max ? P : max;
+        MetaData[4][0] = P < MetaData[4][0] ? P : MetaData[4][0];
+        MetaData[4][1] = P > MetaData[4][1] ? P : MetaData[4][1];
         
         // Humidity
         var V = (a.data[0][14] / 1023) // Voltage read from humidity module
         Data[10].push({x: a.data[0][0]/1000, y: (T*(0.0557419-(0.348387*V))+(170.097*V)-27.2155)}); // Compensated for temperature
+        MetaData[1][0] = 0;
+        MetaData[1][1] = 100;
         
         // Accelerometer Data routines
         var delta = currentTime - lastTime;     // Time passed since last point
@@ -241,6 +258,10 @@ function finalizePAYLOAD(){
         Data[7] = largestTriangleThreeBuckets(Data[6], MAX_POINTS);
         Data[9] = largestTriangleThreeBuckets(Data[8], MAX_POINTS);
         Data[11] = largestTriangleThreeBuckets(Data[10], MAX_POINTS);
+        for (var i = 1; i < MetaData.length; i++) {
+                min = min < MetaData[i][0] ? min : MetaData[i][0];
+                max = max > MetaData[i][1] ? max : MetaData[i][1];
+        }
         Scales[1] = d3.scale.linear().domain([min, max]).nice();
         Series.push({
                 name: 'Geiger Counts (Cps)',
@@ -456,9 +477,20 @@ var resize = function() {
         graph.render();
 }
 
+function rescale() {
+        min = 0;
+        max = 0;
+        for (var i = 1; i < MetaData.length; i++) {
+                if (graph.series[i].disabled != true) {
+                        min = min < MetaData[i][0] ? min : MetaData[i][0];
+                        max = max > MetaData[i][1] ? max : MetaData[i][1];
+                }
+        }
+        Scales[1] = d3.scale.linear().domain([min, max]).nice();
+        graph.update();
+}
+
 function init() {
-    // Handle for the counter
-    counter = document.getElementById('progress');
     document.getElementById('radFiles').addEventListener('change', radFileSelect, false);
     document.getElementById('rocFiles').addEventListener('change', rocFileSelect, false);
     window.addEventListener('resize', resize); 
