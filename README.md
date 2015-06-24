@@ -1,5 +1,7 @@
 This web app creates pretty graphs for the RockOn payload data.
 
+Chrome is recommended, it appears to work in other browsers, but I build and test in chrome.
+
 ###Method of operation:
 1. Click Download Zip, on the right.
 2. Unzip the folder.
