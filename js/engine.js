@@ -1,8 +1,9 @@
 
 // Config
-var DEBUG = false;
-var MAX_POINTS = 1000;
-var MAX_TIME = 1000;
+var DEBUG = false;      // Spits out a lot of data that makes debugging helpful
+                        // Slows things down a LOT.
+var MAX_POINTS  = 500;  // Maximum number of points in the graph per data set
+var MAX_TIME    = 500;  // How long to look at data for, in seconds
 
 ///// Globals ////
 
@@ -12,9 +13,10 @@ var Data = [ [], [], // Radar
              [], [], // Gyro
              [], [], // Temperature
              [], [], // Pressure
-             [], [] // Humiditiy
+             [], []  // Humiditiy
              ]
 
+// I forgot what I was doing here, but it's important. f#%$ me
 var MetaData = [
                 [0, 0],
                 [0, 0],
@@ -22,7 +24,8 @@ var MetaData = [
                 [0, 0],
                 [0, 0],
                 [0, 0]
-                ]
+               ]
+
 // All graphable data
 var Series = [];
 // The various scales used by the graphs
@@ -76,15 +79,15 @@ function radFileSelect(evt) {
 
 // Processing routine for the Radar data
 function stepRadar(a, first) {
-    
+
         // Determine the time to nearest second, rounded up
         var time = Math.ceil(a.data[0][0]*10);
-        
-        // For the first step only, get the offset value to base altitude at 0 
+
+        // For the first step only, get the offset value to base altitude at 0
         if (first) {
                 offset = a.data[0][3];
         }
-        
+
         // If still in the same second
         if (Data[0][time-1]) {
                 Data[0][time-1].y += (a.data[0][3]-offset); // Add in the altitude
@@ -108,10 +111,10 @@ function finalizeRADAR() {
         Scales[0] = d3.scale.linear().domain([0, max.y]).nice();
         annotator.add(max.x, "RADAR Apogee");
         annotator.update();
-        
+
         // push the data and render the chart
         Data[1] = largestTriangleThreeBuckets(Data[0], MAX_POINTS);
-        
+
         Series.push({
                 name: 'RADAR Altitude (m)',
                 data: Data[1],
@@ -128,7 +131,7 @@ function finalizeRADAR() {
                 scale: Scales[0],
                 tickFormat: Rickshaw.Fixtures.Number.formatKMBT
         });
-        
+
         updateGraph();
 }
 
@@ -166,7 +169,7 @@ function stepPayload(a) {
         var currentTime = a.data[0][0];     // Time in ms
         var time = currentTime/1000;        // Time in seconds
         var halfTime = currentTime/500;     // Time in half-seconds
-        
+
         // Geiger Counter
         var gCount = a.data[0][13];
         MetaData[1][0] = gCount < MetaData[1][0] ? gCount : MetaData[1][0];
@@ -177,34 +180,34 @@ function stepPayload(a) {
         else {
                 Data[2].push({x: time, y: (gCount * (1/samples))});
         }
-        
+
         // Gyroscopic Data, Z-axis (Converted to Hz)
         var H = a.data[0][12]/5175;
         Data[4].push({x: time, y: H});
         MetaData[2][0] = H < MetaData[2][0] ? H : MetaData[2][0];
         MetaData[2][1] = H > MetaData[2][1] ? H : MetaData[2][1];
-        
+
         // Temperature (Deg C)
         var T = (a.data[0][8] / 10);
         Data[6].push({x: a.data[0][0]/1000, y: T});
         MetaData[3][0] = T < MetaData[3][0] ? T : MetaData[3][0];
         MetaData[3][1] = T > MetaData[3][1] ? T : MetaData[3][1];
-        
+
         // Pressure (kPa)
         var P = (a.data[0][9] / 1000);
         Data[8].push({x: a.data[0][0]/1000, y: P });
         MetaData[4][0] = P < MetaData[4][0] ? P : MetaData[4][0];
         MetaData[4][1] = P > MetaData[4][1] ? P : MetaData[4][1];
-        
+
         // Humidity
         var V = (a.data[0][14] / 1023) // Voltage read from humidity module
         Data[10].push({x: a.data[0][0]/1000, y: (T*(0.0557419-(0.348387*V))+(170.097*V)-27.2155)}); // Compensated for temperature
         MetaData[1][0] = 0;
         MetaData[1][1] = 100;
-        
+
         // Accelerometer Data routines
         var delta = currentTime - lastTime;     // Time passed since last point
-        var accel = [0, 0, 0];                  // Holds current 3 axis acceleration 
+        var accel = [0, 0, 0];                  // Holds current 3 axis acceleration
         var count = [0, 0, 0];                  // Number of values to average
         if (120 < a.data[0][2] < 550) {
                accel[0] += (a.data[0][2]-335)/61.2;
@@ -232,22 +235,22 @@ function stepPayload(a) {
         }
         accel[2] += (a.data[0][8]-510)/7.76;
         count[2]++;
-        
+
         accel[0] /= count[0];
         accel[1] /= count[1];
-        accel[2] /= count[2];        
+        accel[2] /= count[2];
         acceleration.push(accel[2]);
-        
+
         vel[0] += accel[0]*delta;
         vel[1] += accel[1]*delta;
         vel[2] += accel[2]*delta;
         velocity.push(vel[2]);
-        
+
         pos[0] += vel[0]*delta;
         pos[1] += vel[1]*delta;
         pos[2] += vel[2]*delta;
         position.push(pos[2]);
-                
+
         lastTime = currentTime;
 }
 
@@ -268,35 +271,35 @@ function finalizePAYLOAD(){
                 data: Data[3],
                 scale: Scales[1],
                 color: palette.color(),
-                renderer: 'line',
+                renderer: 'line'
         });
         Series.push({
                 name: 'Gyroscope (Hz, Z-Axis)',
                 data: Data[5],
                 color: palette.color(),
                 scale: Scales[1],
-                renderer: 'line',
+                renderer: 'line'
         });
         Series.push({
                 name: 'Temperature (Deg C)',
                 data: Data[7],
                 color: palette.color(),
                 scale: Scales[1],
-                renderer: 'line',
+                renderer: 'line'
         });
         Series.push({
                 name: 'Pressure (kPa)',
                 data: Data[9],
                 color: palette.color(),
                 scale: Scales[1],
-                renderer: 'line',
+                renderer: 'line'
         });
         Series.push({
                 name: 'Humidity (%)',
                 data: Data[11],
                 color: palette.color(),
                 scale: Scales[1],
-                renderer: 'line',
+                renderer: 'line'
         });
         var yAxis = new Rickshaw.Graph.Axis.Y.Scaled({
                 graph: graph,
@@ -319,25 +322,25 @@ function initGraph() {
                 dotSize: 5,
                 series: Series
         });
-        
+
         palette = new Rickshaw.Color.Palette( { scheme: 'spectrum14' } );
-        
+
         annotator = new Rickshaw.Graph.Annotate({
                 graph: graph,
                 element: document.getElementById("timeline")
         });
-        
+
         legend = new Rickshaw.Graph.Legend({
                 graph: graph,
                 element: document.getElementById("legend")
         });
-        
+
         slider = new Rickshaw.Graph.RangeSlider.Preview({
                 graph: graph,
                 height: 100,
                 element: document.getElementById("slider")
         });
-        
+
         var xAxis = new Rickshaw.Graph.Axis.X({
                 graph: graph
         });
@@ -407,15 +410,15 @@ function largestTriangleThreeBuckets(data, threshold) {
                 next_a;
 
         sampled[ sampled_index++ ] = data[ a ]; // Always add the first point
-            
+
                 // Determine the boundaries for the current and next buckets
         var     bucket_start	= 0,
                 bucket_center 	= ceil( every );
-            
+
         for (var i = 0; i < threshold - 2; i++) {
                 // Calculate the boundary of the third bucket
                 var bucket_end 		= ceil( (i + 2) * every );
-                    
+
         // Calculate point average for next bucket (containing c)
                 var     avg_x = 0,
                         avg_y = 0,
@@ -441,11 +444,11 @@ function largestTriangleThreeBuckets(data, threshold) {
                         point_a_y = data[ a ].y * 1;
 
         max_area = area = -1;
-                    
+
                     // 2D Vector for A-C
                     var base_x = point_a_x - avg_x,
                             base_y = avg_y - point_a_y;
-                            
+
         for ( ; range_offs < range_to; range_offs++ ) {
             // Calculate triangle area over three buckets
             area = abs( ( base_x ) * ( data[ range_offs ].y - point_a_y ) -
@@ -459,7 +462,7 @@ function largestTriangleThreeBuckets(data, threshold) {
 
         sampled[ sampled_index++ ] = data[ next_a ]; // Pick this point from the bucket
         a = next_a; // This a is the next a (chosen b)
-                    
+
                     bucket_start 	= bucket_center;	// Shift the buckets over by one
                     bucket_center 	= bucket_end;		// Center becomes the start, and the end becomes the center
     }
@@ -477,6 +480,7 @@ var resize = function() {
         graph.render();
 }
 
+// Doesn't work, but needs to
 function rescale() {
         min = 0;
         max = 0;
@@ -493,6 +497,6 @@ function rescale() {
 function init() {
     document.getElementById('radFiles').addEventListener('change', radFileSelect, false);
     document.getElementById('rocFiles').addEventListener('change', rocFileSelect, false);
-    window.addEventListener('resize', resize); 
+    window.addEventListener('resize', resize);
     initGraph();
 }
