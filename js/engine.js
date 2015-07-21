@@ -6,82 +6,89 @@
 var DEBUG = false;      // Spits out a lot of data that makes debugging helpful
                         // Slows things down a LOT.
 var MAX_POINTS  = 500;  // Maximum number of points in the graph per data set
-var MAX_TIME    = 500;  // After this many seconds, ignore recorded data
+var MAX_TIME    = 800;  // After this many seconds, ignore recorded data
 
 //// OBJECTS & GLOBALS ////
-function dataSet (name) { /// Dataset object
+function dataSet (name, format) { /// Dataset object
   this.name = name;       // Object identifier, displayed in index
+  this.format = format;   // Display formatting
   this.max = {x : -Infinity, y : -Infinity};  // Maximum value
   this.min = {x : Infinity, y : Infinity};    // Minimum value
   this.raw = [];          // Raw data points
   this.sampled = [];      // Downsampled data points
   this.scale = d3.scale.linear().domain([0, 100]).nice(); // Scale for this value
+  this.calcMaxMin = function(){
+    var yarr = this.raw.map(function(o){return o.y;});
+    this.max = this.raw[yarr.indexOf(Math.max.apply(Math, yarr))];
+    this.min = this.raw[yarr.indexOf(Math.min.apply(Math, yarr))];
+  };
+  this.sample = function(){
+    this.sampled = largestTriangleThreeBuckets(this.raw, MAX_POINTS);
+  };
+  this.calcScale = function(){
+    this.scale = d3.scale.linear().domain([this.min.y, this.max.y]).nice();
+  };
+  this.finish = function(){
+    this.calcMaxMin();
+    this.sample();
+    this.calcScale();
+    Series.push({
+            name: this.name,
+            data: this.sampled,
+            scale: this.scale,
+            format: this.format,
+            disabled: true,
+            color: palette.color(),
+            renderer: 'line'
+    });
+  };
 }
 
 var Series = [];  // Array of data to graph
-var Scales = [];  // Approprate scales for the axes
 
 //// FUNCTIONS ////
 function radFileSelect(evt) {
   var start = performance.now();  // For timing the file process
-  Radar = new dataSet('RADAR Altitude (m)');   // Create Radar dataset
+  Radar = new dataSet('RADAR Altitude (m)', 'm');   // Create Radar dataset
   var rows = 0;                   // Number of rows processed
-  var index = 0;                  // Index of the current value
-  var steps = 1;                  // Number of steps in this tenth-second
   var first = true;               // This is the first valid radar value
   var offset = 0;                 // The inital altitude of the rocket
   var files = evt.target.files;   // The file object to get data from
   Papa.parse(files[0], {          // Process the csv file
     dynamicTyping : true,         // Create numbers from detected values
-    delimiter : "",               // Automatically determine the delimiter
+    delimiter : " ",               // Automatically determine the delimiter
     step: function(row, handle) {   /// Runs each row of processed data
-      if (typeof (row.data[0][0]) == 'number') {    /// If valid, process
-        var time = row.data[0][0];    // Determine time to nearest tenth of a second
-        if (time > MAX_TIME) return;
-        if (first) {                 /// Run only once
-          offset = row.data[0][3];   // Use the initial height as base
+      for (var i = 0, len = row.data[0].length; i < len; i++) {
+        if(row.data[0][i] == ""){
+          row.data [0].splice(i, 1);
+          i--;
+          len--;
         }
-        if (Radar.raw[index] && Radar.raw[index].x == time) {     /// If still in the same tenth-second
-          Radar.raw[index].y += (row.data[0][3]-offset); // Add in the altitude
-          steps++;                       // Note the number of combined values
-        }
-        else {    /// If in a new second
-          if(Radar.raw[index-1]) {  /// If not the first value
-            Radar.raw[index-1].y *= (0.3048/steps);  // Convert to meters and average
-            if (Radar.raw[index-1].y > Radar.max.y)  /// Check if new max
-              Radar.max = Radar.raw[index-1];        // If new max, copy
-            if (Radar.raw[index-1].y < Radar.min.y)  /// Check if new min
-              Radar.min = Radar.raw[index-1];        // If new min, copy
-          }
-          steps = 1;  // Reset steps to 1
-          index++;
-          Radar.raw.push({x: row.data[0][0], y: (row.data[0][3]-offset)}); // Add a new point
-        }
+      }
+      if(row.data[0][0] != 151761000000)
+        return;
+      var time = row.data[0][1];    // Determine time to nearest tenth of a second
+      if (time > MAX_TIME) return;
+      if (first) {                 /// Run only once
+        offset = row.data[0][9];   // Use the initial height as base
         first = false;  // No longer in the first value
       }
+      Radar.raw.push({x: row.data[0][1], y: (row.data[0][9]-offset)}); // Add a new point
       rows++;   // Increment row counter
     },
     complete : function() {    /// Runs once the data has been processed
-      Scales[0] = d3.scale.linear().domain([0, Radar.max.y]).nice(); // Scale the y axis, 0 to maximum altitude
-      annotator.add(Radar.max.x, "RADAR Apogee");               // Denote the apogee
-      annotator.update();                                       // Draw denotation
-      Radar.sampled = largestTriangleThreeBuckets(Radar.raw, MAX_POINTS); // Downsample the radar data
-      Series.push({                         /// Push to the graph
-              name: Radar.name,             // Name
-              data: Radar.sampled,          // Data to graph
-              scale: Scales[0],             // Scale to graph by
-              color: palette.color(),       // Color scheme
-              renderer: 'line'              // Visual rendering style
-      });
+      Radar.finish();
       lyAxis = new Rickshaw.Graph.Axis.Y.Scaled({   /// Push new axis to the graph
               graph: graph,                         // Graph to push to
               orientation: 'left',                  // Side of graph to push to
               element: document.getElementById("axis0"),  // Container to place inside
               width: 40,                            // Width to draw axis
               height: graph.height,                 // Height of the axis
-              scale: Scales[0],                     // Scale to number by
+              scale: Radar.scale,                   // Scale to number by
               tickFormat: Rickshaw.Fixtures.Number.formatKMBT // How to label the axis ticks
       });
+      annotator.add(Radar.max.x, "RADAR Apogee");               // Denote the apogee
+      annotator.update();                                       // Draw denotation
       updateGraph();  // Update the graph
       console.log(rows + " RADAR entries processed in " + (performance.now()-start).toFixed(2) + " ms");  // Report how long it took
     }
@@ -95,208 +102,96 @@ function rocFileSelect(evt) {
   var time      = 0;              // Current time is 0
   var rows      = 0;              // No rows processed yet
   var index     = 0;              // Index of the current value
-  Geiger      = new dataSet('Geiger Counts');           // Create geiger dataset
-  Temperature = new dataSet('Temperature (deg C)');     // Create temperature dataset
-  Pressure    = new dataSet('Pressure (kPa)');          // Create pressure dataset
-  Humidity    = new dataSet('Humidity');                // Create humididty dataset
-  xGyro       = new dataSet('Gyroscope (Hz, x-axis)');  // Create gyro-x dataset
-  yGyro       = new dataSet('Gyroscope (Hz, y-axis)');  // Create gyro-y dataset
-  zGyro       = new dataSet('Gyroscope (Hz, z-axis)');  // Create gyro-z dataset
-  lxAccel = new dataSet('Accelerometer (G, x-axis)');   // Create low accel-x dataset
-  lyAccel = new dataSet('Accelerometer (G, y-axis)');   // Create low accel-y dataset
-  lzAccel = new dataSet('Accelerometer (G, z-axis)');   // Create low accel-z dataset
-  mxAccel = new dataSet('Accelerometer (G, x-axis)');   // Create med accel-x dataset
-  myAccel = new dataSet('Accelerometer (G, y-axis)');   // Create med accel-y dataset
-  mzAccel = new dataSet('Accelerometer (G, z-axis)');   // Create med accel-z dataset
-  hzAccel = new dataSet('Accelerometer (G, z-axis)');   // Create high g accel-z dataset
+  Current     = new dataSet('Current', 'mA');
+  Voltage     = new dataSet('Voltage', 'mV');
+  hxGyro      = new dataSet('High Gyroscope (Hz, x-axis)', 'Hz');
+  hyGyro      = new dataSet('High Gyroscope (Hz, y-axis)', 'Hz');
+  hzGyro      = new dataSet('High Gyroscope (Hz, z-axis)', 'Hz');
+  xGyro       = new dataSet('Gyroscope (Hz, x-axis)', 'Hz');  // Create gyro-x dataset
+  yGyro       = new dataSet('Gyroscope (Hz, y-axis)', 'Hz');  // Create gyro-y dataset
+  zGyro       = new dataSet('Gyroscope (Hz, z-axis)', 'Hz');  // Create gyro-z dataset
+  xAccel      = new dataSet('Accelerometer (G, x-axis)', 'G');
+  yAccel      = new dataSet('Accelerometer (G, y-axis)', 'G');
+  zAccel      = new dataSet('Accelerometer (G, z-axis)', 'G');
+  xMag        = new dataSet('Magnetometer (x-axis)', 'Gauss');
+  yMag        = new dataSet('Magnetometer (y-axis)', 'Gauss');
+  zMag        = new dataSet('Magnetometer (z-axis)', 'Gauss');
+  hzAccel     = new dataSet('Accelerometer (G, z-axis)', 'G');   // Create high g accel-z dataset
   Papa.parse(files[0], {          /// Parse the file
     dynamicTyping : true,         // Convert strings to values
     delimiter : "",               // Determine delimiter automatically
     step: function(row, handle) { /// Handler for each line
-      // Clears out empty array elements left by the parser
-      row.data[0].forEach(function(obj, index, arr){if(obj == ""){arr.splice(index, 1);}});
       if (typeof (row.data[0][0]) == 'number' && row.data[0][0] <= (MAX_TIME * 1000)) { /// If a numerical time and within timeframe
-        var msTime  = row.data[0][0];     // Time in ms
-        var time    = msTime / 1000;      // Time in seconds
-        var lax     = row.data[0][1];     // Low accelerometer x
-        var lay     = row.data[0][2];     // Low accelerometer y
-        var laz     = row.data[0][3];     // Low accelerometer z
-        var max     = row.data[0][4];     // Med accelerometer x
-        var may     = row.data[0][5];     // Med accelerometer y
-        var maz     = row.data[0][6];     // Med accelerometer z
-        var haz     = row.data[0][7];     // High accelerometer z
-        var temp    = row.data[0][8];     // Temperature
-        var press   = row.data[0][9];     // Pressure
-        var gx      = row.data[0][10];    // Gyroscope x
-        var gy      = row.data[0][11];    // Gyroscope y
-        var gz      = row.data[0][12];    // Gyroscope z
-        var gCount  = row.data[0][13];    // Geiger count
-        var humid   = row.data[0][14];    // Humidity
+        var time    = row.data[0][0] / 1000;      // Time in seconds
+        var cur     = row.data[0][1];
+        var vol     = row.data[0][2];
+        var haz     = row.data[0][3];
+        var hgx     = row.data[0][4];
+        var hgy     = row.data[0][5];
+        var hgz     = row.data[0][6];
+        var ax      = row.data[0][7];
+        var ay      = row.data[0][8];
+        var az      = row.data[0][9];
+        var gx      = row.data[0][10];
+        var gy      = row.data[0][11];
+        var gz      = row.data[0][12];
+        var mx      = row.data[0][13];
+        var my      = row.data[0][14];
+        var mz      = row.data[0][15];
 
         //// Low Accelerometer ////
-        lxAccel.raw.push({x: time, y: (lax-335)/61.2});
-        lyAccel.raw.push({x: time, y: (lay-335)/61.2});
-        lzAccel.raw.push({x: time, y: (laz-335)/61.2});
-        if (lxAccel.raw[index].y > lxAccel.max.y) // If new max
-          lxAccel.max = lxAccel.raw[index];
-        else if (lxAccel.raw[index].y < lxAccel.min.y) // If new min
-          lxAccel.min = lxAccel.raw[index];
-        if (lyAccel.raw[index].y > lyAccel.max.y) // If new max
-          lyAccel.max = lyAccel.raw[index];
-        else if (lyAccel.raw[index].y < lyAccel.min.y) // If new min
-          lyAccel.min = lyAccel.raw[index];
-        if (lzAccel.raw[index].y > lzAccel.max.y) // If new max
-          lzAccel.max = lzAccel.raw[index];
-        else if (lzAccel.raw[index].y < lzAccel.min.y) // If new min
-          lzAccel.min = lzAccel.raw[index];
-
-        //// Med Accelerometer ////
-        mxAccel.raw.push({x: time, y: (max-335)/12.9});
-        myAccel.raw.push({x: time, y: (may-335)/12.9});
-        mzAccel.raw.push({x: time, y: (maz-335)/12.9});
-        if (mxAccel.raw[index].y > mxAccel.max.y) // If new max
-          mxAccel.max = mxAccel.raw[index];
-        else if (mxAccel.raw[index].y < mxAccel.min.y) // If new min
-          mxAccel.min = mxAccel.raw[index];
-        if (myAccel.raw[index].y > myAccel.max.y) // If new max
-          myAccel.max = myAccel.raw[index];
-        else if (myAccel.raw[index].y < myAccel.min.y) // If new min
-          myAccel.min = myAccel.raw[index];
-        if (mzAccel.raw[index].y > mzAccel.max.y) // If new max
-          mzAccel.max = mzAccel.raw[index];
-        else if (mzAccel.raw[index].y < mzAccel.min.y) // If new min
-          mzAccel.min = mzAccel.raw[index];
+        xAccel.raw.push({x: time, y: (ax * 0.000183)});
+        yAccel.raw.push({x: time, y: (ay * 0.000183)});
+        zAccel.raw.push({x: time, y: (az * 0.000183)});
 
         //// High Accelerometer ////
-        hzAccel.raw.push({x: time, y: (max-510)/7.76});
-        if (hzAccel.raw[index].y > hzAccel.max.y) // If new max
-          hzAccel.max = hzAccel.raw[index];
-        else if (hzAccel.raw[index].y < hzAccel.min.y) // If new min
-          hzAccel.min = hzAccel.raw[index];
-
-        //// Temperature ////
-        Temperature.raw.push({x: time, y: temp/10});  // New temperature in deg C
-        if (Temperature.raw[index].y > Temperature.max.y) // If new max
-          Temperature.max = Temperature.raw[index];
-        else if (Temperature.raw[index].y < Temperature.min.y) // If new min
-          Temperature.min = Temperature.raw[index];
-
-        //// Pressure ////
-        Pressure.raw.push({x: time, y: press/1000 }); // Pressure in kPa
-        if (Pressure.raw[index].y > Pressure.max.y) // If new max
-          Pressure.max = Pressure.raw[index];
-        else if (Pressure.raw[index].y < Pressure.min.y) // If new min
-          Pressure.min = Pressure.raw[index];
+        hzAccel.raw.push({x: time, y: (0.6125*(haz-512))});
 
         //// Gyroscope ////
-        xGyro.raw.push({x: time, y: gx/5175}); // New gx value in Hz
-        yGyro.raw.push({x: time, y: gy/5175}); // New gy value in Hz
-        zGyro.raw.push({x: time, y: gz/5175}); // New gz value in Hz
-        if (xGyro.raw[index].y > xGyro.max.y) // If new max
-          xGyro.max = xGyro.raw[index];
-        else if (xGyro.raw[index].y < xGyro.min.y) // If new min
-          xGyro.min = xGyro.raw[index];
-        if (yGyro.raw[index].y > yGyro.max.y) // If new max
-          yGyro.max = yGyro.raw[index];
-        else if (yGyro.raw[index].y < yGyro.min.y) // If new min
-          yGyro.min = yGyro.raw[index];
-        if (zGyro.raw[index].y > zGyro.max.y) // If new max
-          zGyro.max = zGyro.raw[index];
-        else if (zGyro.raw[index].y < zGyro.min.y) // If new min
-          zGyro.min = zGyro.raw[index];
+        xGyro.raw.push({x: time, y: (gx * 0.0001695)}); // New gx value in Hz
+        yGyro.raw.push({x: time, y: (gy * 0.0001695)}); // New gy value in Hz
+        zGyro.raw.push({x: time, y: (gz * 0.0001695)}); // New gz value in Hz
 
-        //// Geiger Counter ////
-        Geiger.raw.push({x: time, y: gCount});  // Push new value
-        if (Geiger.raw[index].y > Geiger.max.y) // If new max
-          Geiger.max = Geiger.raw[index];
-        else if (Geiger.raw[index].y < Geiger.min.y) // If new min
-          Geiger.min = Geiger.raw[index];
+        hxGyro.raw.push({x: time, y: (hgx * 0.000339)}); // New gx value in Hz
+        hyGyro.raw.push({x: time, y: (hgy * 0.000339)}); // New gy value in Hz
+        hzGyro.raw.push({x: time, y: (hgz * 0.000339)}); // New gz value in Hz
 
-        //// Humidity ////
-        Humidity.raw.push({x: time, y: humid/1023 }); // Humidity value in %, uncompensated
-        if (Humidity.raw[index].y > Humidity.max.y) // If new max
-          Humidity.max = Humidity.raw[index];
-        else if (Humidity.raw[index].y < Humidity.min.y) // If new min
-          Humidity.min = Humidity.raw[index];
+        xMag.raw.push({x: time, y: (mx * 0.000061)});
+        yMag.raw.push({x: time, y: (my * 0.000061)});
+        zMag.raw.push({x: time, y: (mz * 0.000061)});
+
+        Current.raw.push({x: time, y: ((cur-2500)*1.04)});  // Push new value
+        Voltage.raw.push({x: time, y: vol});  // Push new value
 
         index++;  // Next data point
         }
       rows++;
     },
     complete : function() {
-      Geiger.sampled      = largestTriangleThreeBuckets(Geiger.raw, MAX_POINTS);
-      Temperature.sampled = largestTriangleThreeBuckets(Temperature.raw, MAX_POINTS);
-      Pressure.sampled    = largestTriangleThreeBuckets(Pressure.raw, MAX_POINTS);
-      Humidity.sampled    = largestTriangleThreeBuckets(Humidity.raw, MAX_POINTS);
-      xGyro.sampled       = largestTriangleThreeBuckets(xGyro.raw, MAX_POINTS);
-      yGyro.sampled       = largestTriangleThreeBuckets(yGyro.raw, MAX_POINTS);
-      zGyro.sampled       = largestTriangleThreeBuckets(zGyro.raw, MAX_POINTS);
-      lxAccel.sampled = largestTriangleThreeBuckets(lxAccel.raw, MAX_POINTS);
-      lyAccel.sampled = largestTriangleThreeBuckets(lyAccel.raw, MAX_POINTS);
-      lzAccel.sampled = largestTriangleThreeBuckets(lzAccel.raw, MAX_POINTS);
-      mxAccel.sampled = largestTriangleThreeBuckets(mxAccel.raw, MAX_POINTS);
-      myAccel.sampled = largestTriangleThreeBuckets(myAccel.raw, MAX_POINTS);
-      mzAccel.sampled = largestTriangleThreeBuckets(mzAccel.raw, MAX_POINTS);
-      hzAccel.sampled = largestTriangleThreeBuckets(hzAccel.raw, MAX_POINTS);
+      Current.finish();
+      Voltage.finish();
+      hxGyro.finish();
+      hyGyro.finish();
+      hzGyro.finish();
+      xGyro.finish();
+      yGyro.finish();
+      zGyro.finish();
+      xAccel.finish();
+      yAccel.finish();
+      zAccel.finish();
+      xMag.finish();
+      yMag.finish();
+      zMag.finish();
+      hzAccel.finish();
 
-      Geiger.scale      = d3.scale.linear().domain([Geiger.min.y, Geiger.max.y]).nice();
-      Temperature.scale = d3.scale.linear().domain([Temperature.min.y, Temperature.max.y]).nice();
-      Pressure.scale    = d3.scale.linear().domain([Pressure.min.y, Pressure.max.y]).nice();
-      Humidity.scale    = d3.scale.linear().domain([Humidity.min.y, Humidity.max.y]).nice();
-      xGyro.scale       = d3.scale.linear().domain([xGyro.min.y, xGyro.max.y]).nice();
-      yGyro.scale       = d3.scale.linear().domain([yGyro.min.y, yGyro.max.y]).nice();
-      zGyro.scale       = d3.scale.linear().domain([zGyro.min.y, zGyro.max.y]).nice();
-      lxAccel.scale     = d3.scale.linear().domain([lxAccel.min.y, lxAccel.max.y]).nice();
-      lyAccel.scale     = d3.scale.linear().domain([lyAccel.min.y, lyAccel.max.y]).nice();
-      lzAccel.scale     = d3.scale.linear().domain([lzAccel.min.y, lzAccel.max.y]).nice();
-      mxAccel.scale     = d3.scale.linear().domain([mxAccel.min.y, mxAccel.max.y]).nice();
-      myAccel.scale     = d3.scale.linear().domain([myAccel.min.y, myAccel.max.y]).nice();
-      mzAccel.scale     = d3.scale.linear().domain([mzAccel.min.y, mzAccel.max.y]).nice();
-      hzAccel.scale     = d3.scale.linear().domain([hzAccel.min.y, hzAccel.max.y]).nice();
-
-      Series.push({
-              name: Geiger.name,
-              data: Geiger.sampled,
-              scale: Geiger.scale,
-              color: palette.color(),
-              renderer: 'line'
-      });
-      Series.push({
-              name: zGyro.name,
-              data: zGyro.sampled,
-              color: palette.color(),
-              scale: zGyro.scale,
-              renderer: 'line'
-      });
-      Series.push({
-              name: Temperature.name,
-              data: Temperature.sampled,
-              color: palette.color(),
-              scale: Temperature.scale,
-              renderer: 'line'
-      });
-      Series.push({
-              name: Pressure.name,
-              data: Pressure.sampled,
-              color: palette.color(),
-              scale: Pressure.scale,
-              renderer: 'line'
-      });
-      Series.push({
-              name: Humidity.name,
-              data: Humidity.sampled,
-              color: palette.color(),
-              scale: Humidity.scale,
-              renderer: 'line'
-      });
       y2Axis = new Rickshaw.Graph.Axis.Y.Scaled({
-              graph: graph,
-              orientation: 'left',
-              element: document.getElementById("axis1"),
-              width: 40,
-              height: graph.height,
-              scale: Pressure.scale,
-              tickFormat: Rickshaw.Fixtures.Number.formatKMBT
+                graph: graph,
+                orientation: 'left',
+                element: document.getElementById("axis1"),
+                width: 40,
+                height: graph.height,
+                scale: hxGyro.scale,
+                tickFormat: Rickshaw.Fixtures.Number.formatKMBT
       });
       updateGraph();
       console.log(rows + " Payload entries processed in " + (performance.now()-start).toFixed(2) + " ms");
@@ -345,18 +240,18 @@ function updateGraph() {
                 height: 100,                                // How tall the slider should be
                 element: document.getElementById("slider")  // Container for the slider
         });
-        highlighter = new Rickshaw.Graph.Behavior.Series.Highlight( {   /// Create a highlight action
-                graph: graph,                                           // What graph to attatch to
-                legend: legend                                          // What legend to base values on
-        });
         shelving = new Rickshaw.Graph.Behavior.Series.Toggle( {   /// Create new toggle action
                 graph: graph,                                     // What graph to attatch to
                 legend: legend                                    // What legend to attatch to
         });
         hoverDetail = new Rickshaw.Graph.HoverDetail( {   /// Show details whole hovering
                 graph: graph,                             // Graph to attatch to
-                xFormatter: function(x, series) {         /// Define how to display the x values
-                        return (x + " seconds");          // Display as seconds (e.x. "2 seconds")
+                formatter: function(series, x, y) {         /// Define how to display the x values
+                        if(y2Axis.scale != series.scale){
+                          y2Axis.scale = series.scale;
+                          setTimeout(function(){ graph.update(); }, 50);
+                        }
+                        return (x.toFixed(2) + " seconds, " + y.toFixed(2) + " " + series.format);  // Display as seconds and value
                 }
         });
         graph.update();   // Update the graph
